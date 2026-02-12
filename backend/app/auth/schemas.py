@@ -26,6 +26,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    email_verify_required: bool = False
 
 
 # ─── 2FA 설정 (최초 등록) ───
@@ -48,6 +49,7 @@ class TOTPActivateResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    email_verify_required: bool = False
 
 
 # ─── 유저 관리 ───
@@ -71,6 +73,7 @@ class UserResponse(BaseModel):
     username: str
     display_name: Optional[str]
     email: Optional[str]
+    email_verified: bool = False
     is_admin: bool
     is_active: bool
     totp_enabled: bool
@@ -90,3 +93,31 @@ class PasswordChange(BaseModel):
 class RecoveryLoginRequest(BaseModel):
     temp_token: str
     recovery_code: str = Field(min_length=8, max_length=8)
+
+
+# ─── 이메일 인증 ───
+class EmailVerifySendRequest(BaseModel):
+    temp_token: str
+    email: str
+
+class EmailVerifyConfirmRequest(BaseModel):
+    temp_token: str
+    code: str = Field(min_length=6, max_length=6)
+
+
+# ─── 비밀번호 재설정 ───
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+# ─── 2FA 이메일 복구 ───
+class Recover2FASendRequest(BaseModel):
+    temp_token: str
+
+class Recover2FAConfirmRequest(BaseModel):
+    temp_token: str
+    code: str = Field(min_length=6, max_length=6)

@@ -44,9 +44,9 @@ def create_access_token(user_id: str, is_admin: bool, two_fa_verified: bool = Tr
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_temp_token(user_id: str, purpose: str = "2fa") -> str:
-    """2FA 검증 또는 2FA 설정 전 임시 토큰 (5분 유효)"""
-    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+def create_temp_token(user_id: str, purpose: str = "2fa", expire_minutes: int = 5) -> str:
+    """임시 토큰 (2FA 검증, 이메일 인증 등)"""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
     payload = {
         "sub": user_id,
         "2fa_verified": False,
@@ -134,6 +134,26 @@ def verify_recovery_code(code: str, hashed_codes: list[str]) -> tuple[bool, int]
     return False, -1
 
 
+# ─── 이메일 인증 코드 ───
+
+def generate_email_code() -> str:
+    """6자리 숫자 인증 코드"""
+    import random
+    return str(random.randint(100000, 999999))
+
+
+def create_email_token(user_id: str, purpose: str, expire_minutes: int = 60) -> str:
+    """이메일 링크용 JWT (비밀번호 재설정, 2FA 복구 등)"""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
+    payload = {
+        "sub": user_id,
+        "purpose": purpose,
+        "exp": expire,
+        "type": "email",
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 # ─── 계정 잠금 ───
 
 MAX_FAILED_ATTEMPTS = 5
@@ -158,9 +178,11 @@ async def create_initial_admin():
                 username=settings.admin_username,
                 password_hash=hash_password(settings.admin_password),
                 display_name="관리자",
+                email=settings.admin_email,
+                email_verified=True,  # 관리자는 이메일 인증 면제
                 is_admin=True,
                 is_active=True,
-                totp_setup_required=True,  # 관리자도 최초 로그인 시 2FA 설정 필요
+                totp_setup_required=True,
             )
             session.add(admin)
             await session.commit()

@@ -37,6 +37,61 @@ def _wrap_html(content: str) -> str:
     """
 
 
+# ─── 이메일 인증 코드 ───
+
+async def send_verification_code(to: str, username: str, code: str):
+    html = _wrap_html(f"""
+        <h2 style="color: #4fc3f7;">📧 이메일 인증</h2>
+        <p>{username}님, 아래 인증 코드를 입력해주세요.</p>
+        <div style="background: #0d1117; padding: 20px; border-radius: 8px; margin: 16px 0;
+                    text-align: center; font-size: 32px; letter-spacing: 8px;
+                    font-family: monospace; color: #58a6ff;">
+            {code}
+        </div>
+        <p style="color: #8b949e;">이 코드는 24시간 동안 유효합니다.</p>
+    """)
+    await send_email(to, f"[{settings.app_name}] 이메일 인증 코드: {code}", html)
+
+
+# ─── 비밀번호 재설정 링크 ───
+
+async def send_password_reset(to: str, username: str, reset_token: str):
+    reset_url = f"{settings.app_url}/login?reset_token={reset_token}"
+    html = _wrap_html(f"""
+        <h2 style="color: #ffa726;">🔑 비밀번호 재설정</h2>
+        <p>{username}님, 비밀번호 재설정을 요청하셨습니다.</p>
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{reset_url}"
+               style="background: #238636; color: #fff; padding: 12px 32px;
+                      border-radius: 8px; text-decoration: none; font-weight: 600;
+                      display: inline-block;">
+                비밀번호 재설정하기
+            </a>
+        </div>
+        <p style="color: #8b949e;">이 링크는 1시간 동안 유효합니다.</p>
+        <p style="color: #8b949e;">본인이 요청하지 않았다면 이 이메일을 무시하세요.</p>
+    """)
+    await send_email(to, f"[{settings.app_name}] 비밀번호 재설정", html)
+
+
+# ─── 2FA 복구 코드 ───
+
+async def send_2fa_recovery_code(to: str, username: str, code: str):
+    html = _wrap_html(f"""
+        <h2 style="color: #f85149;">🔓 2FA 복구</h2>
+        <p>{username}님, 2FA 복구 요청을 받았습니다.</p>
+        <p>아래 코드를 입력하면 기존 2FA가 해제되고, 다시 설정해야 합니다.</p>
+        <div style="background: #0d1117; padding: 20px; border-radius: 8px; margin: 16px 0;
+                    text-align: center; font-size: 32px; letter-spacing: 8px;
+                    font-family: monospace; color: #f85149;">
+            {code}
+        </div>
+        <p style="color: #8b949e;">이 코드는 15분간 유효합니다.</p>
+        <p style="color: #f85149;">⚠️ 본인이 요청하지 않았다면 즉시 비밀번호를 변경하세요.</p>
+    """)
+    await send_email(to, f"[{settings.app_name}] 2FA 복구 코드: {code}", html)
+
+
 # ─── 게임 서버 신청 알림 ───
 
 async def send_game_request_notification(

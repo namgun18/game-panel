@@ -19,6 +19,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     display_name = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
+    email_verified = Column(Boolean, default=False)
+    email_verify_code = Column(String(6), nullable=True)
+    email_verify_expires = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
 

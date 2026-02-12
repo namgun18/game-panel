@@ -3,7 +3,7 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4 font-weight-bold" style="color:#E6EDF3;">권한 관리</h1>
       <v-spacer />
-      <v-btn color="primary" @click="showGrant = true">
+      <v-btn color="primary" @click="openGrantDialog">
         <v-icon start>mdi-plus</v-icon> 권한 부여
       </v-btn>
     </div>
@@ -42,7 +42,16 @@
         <v-card-text>
           <v-select v-model="grant.user_id" :items="users" item-title="username"
             item-value="id" label="사용자" />
-          <v-text-field v-model="grant.container_name" label="컨테이너 이름" />
+          <v-select v-model="grant.container_name" :items="containers" item-title="name"
+            item-value="name" label="컨테이너">
+            <template #item="{ item, props }">
+              <v-list-item v-bind="props">
+                <template #append>
+                  <v-chip :color="item.raw.status === 'running' ? 'success' : 'default'" size="x-small" variant="tonal">{{ item.raw.status }}</v-chip>
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
           <v-select v-model="grant.actions" :items="allActions" label="액션" multiple chips />
         </v-card-text>
         <v-card-actions>
@@ -61,6 +70,7 @@ import api from '../api'
 
 const permissions = ref([])
 const users = ref([])
+const containers = ref([])
 const showGrant = ref(false)
 const allActions = ['start', 'stop', 'restart', 'logs', 'files', 'rcon', 'config', 'backup']
 const grant = reactive({ user_id: '', container_name: '', actions: [] })
@@ -75,6 +85,15 @@ async function fetchUsers() {
   users.value = res.data
 }
 
+async function fetchContainers() {
+  try {
+    const res = await api.get('/api/containers/')
+    containers.value = res.data
+  } catch (e) {
+    containers.value = []
+  }
+}
+
 async function grantPermission() {
   try {
     await api.post('/api/permissions/', grant)
@@ -83,6 +102,14 @@ async function grantPermission() {
   } catch (e) {
     alert(e.response?.data?.detail || '권한 부여 실패')
   }
+}
+
+async function openGrantDialog() {
+  await fetchContainers()
+  grant.user_id = ''
+  grant.container_name = ''
+  grant.actions = []
+  showGrant.value = true
 }
 
 async function revoke(id) {
@@ -94,5 +121,6 @@ async function revoke(id) {
 onMounted(() => {
   fetchPermissions()
   fetchUsers()
+  fetchContainers()
 })
 </script>

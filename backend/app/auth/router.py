@@ -10,6 +10,9 @@ from app.auth.schemas import (
     UserCreate, UserUpdate, UserResponse, PasswordChange,
     TOTPSetupResponse, TOTPActivateRequest, TOTPActivateResponse,
     RecoveryLoginRequest,
+    EmailVerifySendRequest, EmailVerifyConfirmRequest,
+    ForgotPasswordRequest, ResetPasswordRequest,
+    Recover2FASendRequest, Recover2FAConfirmRequest,
 )
 from app.auth.service import (
     verify_password, hash_password,
@@ -17,6 +20,7 @@ from app.auth.service import (
     generate_totp_secret, get_totp_uri, generate_qr_code_base64, verify_totp,
     generate_recovery_codes, verify_recovery_code,
     is_account_locked, MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES,
+    generate_email_code, create_email_token,
 )
 from app.auth.deps import get_current_user, require_admin
 
@@ -141,6 +145,17 @@ async def activate_totp(req: TOTPActivateRequest, db: AsyncSession = Depends(get
     user.recovery_codes = hashed_codes
     await db.commit()
 
+    # 이메일 미인증 → 이메일 인증 단계로
+    if not user.email_verified:
+        email_temp = create_temp_token(user.id, purpose="email_verify", expire_minutes=30)
+        return TOTPActivateResponse(
+            message="2차 인증이 활성화되었습니다. 아래 복구 코드를 안전한 곳에 보관하세요. 이 코드는 다시 볼 수 없습니다!",
+            recovery_codes=plain_codes,
+            access_token=email_temp,  # 프론트에서 email_verify 플로우 진입용
+            refresh_token="",
+            email_verify_required=True,
+        )
+
     # 정식 토큰 발급
     access_token = create_access_token(user.id, user.is_admin)
     refresh_token = create_refresh_token(user.id)
@@ -170,6 +185,11 @@ async def verify_2fa(req: TOTPVerifyRequest, db: AsyncSession = Depends(get_db))
 
     if not verify_totp(user.totp_secret, req.totp_code):
         raise HTTPException(status_code=401, detail="2FA 코드가 올바르지 않습니다")
+
+    # 이메일 미인증 → 이메일 인증 단계
+    if not user.email_verified:
+        email_temp = create_temp_token(user.id, purpose="email_verify", expire_minutes=30)
+        return TokenResponse(access_token=email_temp, refresh_token="", email_verify_required=True)
 
     access_token = create_access_token(user.id, user.is_admin)
     refresh_token = create_refresh_token(user.id)
@@ -203,6 +223,12 @@ async def verify_recovery(req: RecoveryLoginRequest, db: AsyncSession = Depends(
     await db.commit()
 
     remaining = len(codes)
+
+    # 이메일 미인증 → 이메일 인증 단계
+    if not user.email_verified:
+        email_temp = create_temp_token(user.id, purpose="email_verify", expire_minutes=30)
+        return TokenResponse(access_token=email_temp, refresh_token="", email_verify_required=True)
+
     access_token = create_access_token(user.id, user.is_admin)
     refresh_token = create_refresh_token(user.id)
 
@@ -230,13 +256,197 @@ async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=new_access, refresh_token=new_refresh)
 
 
+# ═══════════════════════════════════════════
+# 이메일 인증
+# ═══════════════════════════════════════════
+
+@router.post("/verify-email/send")
+async def send_email_verification(req: EmailVerifySendRequest, db: AsyncSession = Depends(get_db)):
+    """이메일 인증 코드 발송 (2FA 완료 후 호출)"""
+    payload = decode_token(req.temp_token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+    code = generate_email_code()
+    user.email = req.email
+    user.email_verify_code = code
+    user.email_verify_expires = datetime.utcnow() + timedelta(hours=24)
+    await db.commit()
+
+    try:
+        from app.mail.service import send_verification_code
+        await send_verification_code(req.email, user.username, code)
+    except Exception as e:
+        print(f"[MAIL ERROR] 인증 코드 발송 실패: {e}")
+        raise HTTPException(status_code=500, detail="인증 메일 발송에 실패했습니다")
+
+    return {"message": "인증 코드가 이메일로 발송되었습니다"}
+
+
+@router.post("/verify-email/confirm")
+async def confirm_email_verification(req: EmailVerifyConfirmRequest, db: AsyncSession = Depends(get_db)):
+    """이메일 인증 코드 확인"""
+    payload = decode_token(req.temp_token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+    if not user.email_verify_code or not user.email_verify_expires:
+        raise HTTPException(status_code=400, detail="인증 코드를 먼저 요청하세요")
+
+    if datetime.utcnow() > user.email_verify_expires:
+        raise HTTPException(status_code=400, detail="인증 코드가 만료되었습니다. 다시 요청하세요")
+
+    if user.email_verify_code != req.code:
+        raise HTTPException(status_code=400, detail="인증 코드가 올바르지 않습니다")
+
+    user.email_verified = True
+    user.email_verify_code = None
+    user.email_verify_expires = None
+    await db.commit()
+
+    # 이메일 인증 완료 → 정식 토큰 발급
+    access_token = create_access_token(user.id, user.is_admin)
+    refresh_token = create_refresh_token(user.id)
+    return {"message": "이메일 인증이 완료되었습니다", "access_token": access_token, "refresh_token": refresh_token}
+
+
+# ═══════════════════════════════════════════
+# 비밀번호 재설정
+# ═══════════════════════════════════════════
+
+@router.post("/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """비밀번호 재설정 이메일 발송"""
+    result = await db.execute(select(User).where(User.email == req.email, User.email_verified == True))
+    user = result.scalar_one_or_none()
+
+    # 사용자 존재 여부와 관계없이 동일 응답 (이메일 열거 방지)
+    if user:
+        token = create_email_token(user.id, purpose="password_reset", expire_minutes=60)
+        try:
+            from app.mail.service import send_password_reset
+            await send_password_reset(user.email, user.username, token)
+        except Exception as e:
+            print(f"[MAIL ERROR] 비밀번호 재설정 메일 실패: {e}")
+
+    return {"message": "이메일이 등록되어 있다면 재설정 링크가 발송됩니다"}
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """비밀번호 재설정 실행"""
+    payload = decode_token(req.token)
+    if payload is None or payload.get("purpose") != "password_reset" or payload.get("type") != "email":
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크입니다")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=400, detail="유효하지 않은 링크입니다")
+
+    user.password_hash = hash_password(req.new_password)
+    user.failed_login_count = 0
+    user.locked_until = None
+    await db.commit()
+
+    return {"message": "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인하세요"}
+
+
+# ═══════════════════════════════════════════
+# 2FA 이메일 복구
+# ═══════════════════════════════════════════
+
+@router.post("/recover-2fa/send")
+async def send_2fa_recovery(req: Recover2FASendRequest, db: AsyncSession = Depends(get_db)):
+    """2FA 복구 코드를 인증된 이메일로 발송"""
+    payload = decode_token(req.temp_token)
+    if payload is None or payload.get("purpose") != "2fa":
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+    if not user.email or not user.email_verified:
+        raise HTTPException(status_code=400, detail="인증된 이메일이 없습니다. 관리자에게 문의하세요")
+
+    code = generate_email_code()
+    user.email_verify_code = code  # 임시 코드 재활용
+    user.email_verify_expires = datetime.utcnow() + timedelta(minutes=15)
+    await db.commit()
+
+    try:
+        from app.mail.service import send_2fa_recovery_code
+        await send_2fa_recovery_code(user.email, user.username, code)
+    except Exception as e:
+        print(f"[MAIL ERROR] 2FA 복구 메일 실패: {e}")
+        raise HTTPException(status_code=500, detail="복구 메일 발송에 실패했습니다")
+
+    # 이메일 마스킹
+    email = user.email
+    at_idx = email.index("@")
+    masked = email[0:2] + "***" + email[at_idx:]
+    return {"message": f"복구 코드가 {masked}(으)로 발송되었습니다"}
+
+
+@router.post("/recover-2fa/confirm")
+async def confirm_2fa_recovery(req: Recover2FAConfirmRequest, db: AsyncSession = Depends(get_db)):
+    """2FA 복구 코드 확인 → 2FA 초기화 → 재설정 필요"""
+    payload = decode_token(req.temp_token)
+    if payload is None or payload.get("purpose") != "2fa":
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+    if not user.email_verify_code or not user.email_verify_expires:
+        raise HTTPException(status_code=400, detail="복구 코드를 먼저 요청하세요")
+
+    if datetime.utcnow() > user.email_verify_expires:
+        raise HTTPException(status_code=400, detail="복구 코드가 만료되었습니다. 다시 요청하세요")
+
+    if user.email_verify_code != req.code:
+        raise HTTPException(status_code=400, detail="복구 코드가 올바르지 않습니다")
+
+    # 2FA 초기화 → 다시 설정 필요
+    user.totp_secret = None
+    user.totp_enabled = False
+    user.totp_setup_required = True
+    user.recovery_codes = []
+    user.email_verify_code = None
+    user.email_verify_expires = None
+    await db.commit()
+
+    # 2FA 재설정 플로우로 진입
+    temp_token = create_temp_token(user.id, purpose="2fa_setup")
+    return {"message": "2FA가 초기화되었습니다. 다시 설정해주세요", "status": "2fa_setup_required", "temp_token": temp_token}
+
+
 # ─── 내 정보 ───
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     return UserResponse(
         id=user.id, username=user.username, display_name=user.display_name,
-        email=user.email, is_admin=user.is_admin, is_active=user.is_active,
+        email=user.email, email_verified=user.email_verified, is_admin=user.is_admin, is_active=user.is_active,
         totp_enabled=user.totp_enabled, totp_setup_required=user.totp_setup_required,
         created_at=user.created_at.isoformat(),
     )
@@ -286,7 +496,7 @@ async def create_user(
 
     return UserResponse(
         id=user.id, username=user.username, display_name=user.display_name,
-        email=user.email, is_admin=user.is_admin, is_active=user.is_active,
+        email=user.email, email_verified=user.email_verified, is_admin=user.is_admin, is_active=user.is_active,
         totp_enabled=user.totp_enabled, totp_setup_required=user.totp_setup_required,
         created_at=user.created_at.isoformat(),
     )
@@ -299,7 +509,7 @@ async def list_users(admin: User = Depends(require_admin), db: AsyncSession = De
     return [
         UserResponse(
             id=u.id, username=u.username, display_name=u.display_name,
-            email=u.email, is_admin=u.is_admin, is_active=u.is_active,
+            email=u.email, email_verified=u.email_verified, is_admin=u.is_admin, is_active=u.is_active,
             totp_enabled=u.totp_enabled, totp_setup_required=u.totp_setup_required,
             created_at=u.created_at.isoformat(),
         )
@@ -327,7 +537,7 @@ async def update_user(
 
     return UserResponse(
         id=user.id, username=user.username, display_name=user.display_name,
-        email=user.email, is_admin=user.is_admin, is_active=user.is_active,
+        email=user.email, email_verified=user.email_verified, is_admin=user.is_admin, is_active=user.is_active,
         totp_enabled=user.totp_enabled, totp_setup_required=user.totp_setup_required,
         created_at=user.created_at.isoformat(),
     )
