@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from docker.errors import NotFound, APIError
 
 from app.db.models import User
-from app.auth.deps import get_current_user
+from app.auth.deps import require_discord_role
 from app.rbac.deps import RequirePermission
 from app.containers.schemas import ContainerInfo, ContainerAction, ContainerLogs
 from app.containers.service import list_game_containers, container_action, get_container_logs, get_container
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/containers", tags=["컨테이너 관리"])
 # ─── 목록 조회 ───
 
 @router.get("/", response_model=list[ContainerInfo])
-async def get_containers(user: User = Depends(get_current_user)):
+async def get_containers(user: User = Depends(require_discord_role)):
     try:
         containers = list_game_containers()
         return [ContainerInfo(**c) for c in containers]

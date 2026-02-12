@@ -26,6 +26,7 @@ class User(Base):
     discord_id = Column(String(20), unique=True, nullable=True, index=True)
     discord_username = Column(String(100), nullable=True)
     discord_avatar = Column(String(255), nullable=True)
+    discord_roles = Column(JSON, default=list)  # Discord 서버 역할 ID 목록
 
     # 2FA — 최초 로그인 시 강제 설정
     totp_secret = Column(String(32), nullable=True)

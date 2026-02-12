@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.db.models import User, GameRequest
-from app.auth.deps import get_current_user, require_admin
+from app.auth.deps import get_current_user, require_admin, require_discord_role
 from app.requests.schemas import GameRequestCreate, GameRequestResponse, GameRequestReview
 from app.mail.service import send_game_request_notification
 from app.discord.notify import notify_game_request
@@ -13,11 +13,12 @@ from app.discord.notify import notify_game_request
 router = APIRouter(prefix="/api/game-requests", tags=["게임 신청"])
 
 
-# ─── 게임 서버 신청 (비로그인도 가능) ───
+# ─── 게임 서버 신청 (로그인 + Discord 역할 필요) ───
 
 @router.post("/", response_model=GameRequestResponse)
 async def submit_game_request(
     req: GameRequestCreate,
+    user: User = Depends(require_discord_role),
     db: AsyncSession = Depends(get_db),
 ):
     game_req = GameRequest(

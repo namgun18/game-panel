@@ -19,7 +19,7 @@ from app.db.models import User
 from app.auth.service import (
     hash_password, create_temp_token, create_access_token, create_refresh_token,
 )
-from app.discord.service import exchange_code, get_discord_user, check_guild_member, get_avatar_url
+from app.discord.service import exchange_code, get_discord_user, check_guild_member, get_avatar_url, check_has_allowed_role
 from app.discord.notify import notify_user_registered
 
 settings = get_settings()
@@ -68,10 +68,14 @@ async def discord_callback(
     discord_id = discord_user["id"]
     discord_name = discord_user.get("global_name") or discord_user.get("username", "Unknown")
 
-    # ── 3. 서버 멤버 검증 ──
-    is_member = await check_guild_member(discord_id)
-    if not is_member:
+    # ── 3. 서버 멤버 + 역할 검증 ──
+    member_data = await check_guild_member(discord_id)
+    if member_data is None:
         return _redirect_error("비공개 서버 멤버만 가입할 수 있습니다. 서버에 먼저 참가해주세요")
+
+    member_roles = member_data.get("roles", [])
+    if not check_has_allowed_role(member_roles):
+        return _redirect_error("필요한 Discord 역할이 없습니다. 관리자에게 문의하세요")
 
     # ── 4. 기존 계정 확인 또는 신규 생성 ──
     result = await db.execute(select(User).where(User.discord_id == discord_id))
@@ -92,6 +96,7 @@ async def discord_callback(
             discord_id=discord_id,
             discord_username=discord_user.get("username"),
             discord_avatar=get_avatar_url(discord_user),
+            discord_roles=member_roles,
             is_admin=False,
             totp_setup_required=True,
             registered_via="discord",
@@ -99,15 +104,16 @@ async def discord_callback(
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        print(f"[DISCORD] 신규 계정 생성: {username} (Discord: {discord_name})")
+        print(f"[DISCORD] 신규 계정 생성: {username} (Discord: {discord_name}, roles: {member_roles})")
         try:
             await notify_user_registered(username, "discord")
         except Exception:
             pass
     else:
-        # 기존 계정 — 프로필 업데이트
+        # 기존 계정 — 프로필 + 역할 업데이트
         user.discord_username = discord_user.get("username")
         user.discord_avatar = get_avatar_url(discord_user)
+        user.discord_roles = member_roles
         user.last_login_at = datetime.utcnow()
         await db.commit()
 

@@ -49,41 +49,71 @@ def list_files(container_name: str, path: str = "/") -> list[dict]:
     path = _validate_path(path)
     container = get_container(container_name)
 
+    # GNU ls 시도 → 실패 시 BusyBox ls 폴백
     exit_code, output = container.exec_run(
         ["ls", "-la", "--time-style=+%Y-%m-%d %H:%M:%S", path],
         demux=True,
     )
-    stdout = output[0].decode("utf-8", errors="replace") if output[0] else ""
-    stderr = output[1].decode("utf-8", errors="replace") if output[1] else ""
-
+    gnu_mode = True
     if exit_code != 0:
-        raise FileNotFoundError(stderr or f"경로를 찾을 수 없습니다: {path}")
+        stderr = output[1].decode("utf-8", errors="replace") if output[1] else ""
+        if "unrecognized option" in stderr or "invalid option" in stderr:
+            # BusyBox 폴백
+            exit_code, output = container.exec_run(
+                ["ls", "-la", path],
+                demux=True,
+            )
+            gnu_mode = False
+            if exit_code != 0:
+                stderr2 = output[1].decode("utf-8", errors="replace") if output[1] else ""
+                raise FileNotFoundError(stderr2 or f"경로를 찾을 수 없습니다: {path}")
+        else:
+            raise FileNotFoundError(stderr or f"경로를 찾을 수 없습니다: {path}")
+
+    stdout = output[0].decode("utf-8", errors="replace") if output[0] else ""
 
     files = []
     for line in stdout.strip().split("\n"):
         if not line or line.startswith("total"):
             continue
-        parts = line.split(None, 7)
-        if len(parts) < 8:
-            continue
 
-        perms, _, owner, group, size, date, time_str, name = parts
+        if gnu_mode:
+            # GNU ls: perms links owner group size date time name
+            parts = line.split(None, 7)
+            if len(parts) < 8:
+                continue
+            perms, _, owner, group, size, date, time_str, name = parts
+            modified = f"{date} {time_str}"
+        else:
+            # BusyBox ls: perms links owner group size Mon DD HH:MM name
+            # 또는:       perms links owner group size Mon DD  YYYY name
+            parts = line.split(None, 8)
+            if len(parts) < 9:
+                continue
+            perms, _, owner, group, size, mon, dd, time_or_year, name = parts
+            modified = f"{mon} {dd} {time_or_year}"
+
         if name in (".", ".."):
             continue
 
         real_name = name.split(" -> ")[0] if " -> " in name else name
         is_dir = perms.startswith("d")
 
+        try:
+            size_int = int(size)
+        except ValueError:
+            size_int = 0
+
         files.append({
             "name": real_name,
             "path": posixpath.join(path, real_name),
             "is_dir": is_dir,
             "is_link": perms.startswith("l"),
-            "size": int(size) if not is_dir else 0,
-            "size_display": _format_size(int(size)) if not is_dir else "-",
+            "size": size_int if not is_dir else 0,
+            "size_display": _format_size(size_int) if not is_dir else "-",
             "permissions": perms,
             "owner": owner,
-            "modified": f"{date} {time_str}",
+            "modified": modified,
         })
 
     files.sort(key=lambda f: (not f["is_dir"], f["name"].lower()))

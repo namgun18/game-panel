@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     discord_request_channel_id: str = ""  # 게임 신청 알림 채널 (비워두면 notify 채널 사용)
     discord_notify_enabled: bool = True
 
+    # ─── Discord 역할 제한 ───
+    discord_allowed_role_ids: str = ""    # 허용 역할 ID (쉼표 구분, 비워두면 멤버만 확인)
+
+    @property
+    def allowed_role_ids(self) -> list[str]:
+        """쉼표 구분 역할 ID → 리스트"""
+        if not self.discord_allowed_role_ids.strip():
+            return []
+        return [r.strip() for r in self.discord_allowed_role_ids.split(",") if r.strip()]
+
     # ─── 초대 코드 (디스코드 안 쓰는 지인용) ───
     invite_code_enabled: bool = True
 

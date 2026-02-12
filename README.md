@@ -69,6 +69,50 @@ docker compose up -d
 초기 관리자 계정은 `.env`의 `ADMIN_USERNAME` / `ADMIN_PASSWORD`로 자동 생성됩니다.
 첫 로그인 시 TOTP 2FA 설정이 강제됩니다.
 
+## 게임 서버 등록 조건
+
+패널에 게임 서버가 표시되려면 **두 가지 조건을 모두** 충족해야 합니다:
+
+| 조건 | 설명 |
+|------|------|
+| `--label game-panel.managed=true` | 패널 관리 대상 라벨 |
+| `--network game-servers` | 게임 서버 전용 네트워크 |
+
+이 이중 검증으로 패널 인프라 컨테이너(backend, nginx, DB)는 절대 게임 서버 목록에 노출되지 않습니다.
+
+### 게임 서버 띄우기 예시
+
+```powershell
+# 네트워크 생성 (최초 1회)
+docker network create game-servers
+
+# Minecraft 서버
+docker run -d \
+  --name minecraft-survival \
+  --network game-servers \
+  --label game-panel.managed=true \
+  -e EULA=TRUE \
+  -e DISABLE_GUI=true \
+  -p 25565:25565 \
+  itzg/minecraft-server:java21
+
+# Valheim 서버
+docker run -d \
+  --name valheim-server \
+  --network game-servers \
+  --label game-panel.managed=true \
+  -p 2456-2458:2456-2458/udp \
+  lloesche/valheim-server
+
+# docker-compose로 띄우는 경우
+# labels:
+#   - "game-panel.managed=true"
+# networks:
+#   - game-servers
+```
+
+라벨이나 네트워크 중 하나라도 빠지면 패널에서 보이지 않습니다.
+
 ## Discord 봇 설정
 
 1. https://discord.com/developers/applications → 새 앱 생성
@@ -154,6 +198,16 @@ docker compose up -d
 | `DISCORD_NOTIFY_CHANNEL_ID` | — | 서버 상태 알림 채널 ID |
 | `DISCORD_REQUEST_CHANNEL_ID` | — | 게임 신청 알림 채널 ID (비워두면 notify 채널 사용) |
 | `DISCORD_NOTIFY_ENABLED` | `true` | Discord 채널 알림 활성화 |
+
+### Discord 역할 제한
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `DISCORD_ALLOWED_ROLE_IDS` | — | 허용 역할 ID (쉼표 구분, 비워두면 멤버면 누구나 허용) |
+
+역할 제한이 설정되면 로그인, 게임 신청, 서버 제어 **전체**에 적용됩니다.
+여러 역할 중 하나라도 보유하면 허용. 관리자는 역할 제한 무시.
+역할 ID 확인: Discord 서버 설정 → 역할 → 우클릭 → "역할 ID 복사" (개발자 모드 필요)
 
 ### 기타
 
