@@ -13,10 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db.session import async_session
 from app.db.models import ContainerState, Permission, User
-from app.containers.service import list_game_containers, remove_container, get_docker_client
+from app.containers.service import (
+    list_game_containers, remove_container, get_docker_client,
+    check_container_port, get_container_uptime_seconds,
+)
 from app.mail.service import send_container_down_alert, send_container_delete_warning, send_container_deleted_notice
 from app.discord.notify import (
     notify_server_down, notify_server_up, notify_delete_warning, notify_server_deleted,
+    notify_auto_restart, notify_auto_restart_limit,
 )
 
 settings = get_settings()
@@ -87,6 +91,9 @@ async def _check_all_containers():
                     state.down_alert_sent = False
                     state.delete_warning_sent = False
 
+                    # ── 포트 헬스체크 + 자동 재시작 ──
+                    await _port_healthcheck(name, c, state)
+
                 elif c["status"] != "running" and prev_status == "running":
                     # 방금 꺼짐
                     state.stopped_since = now
@@ -131,6 +138,71 @@ async def _check_all_containers():
                 state.last_checked_at = now
 
         await db.commit()
+
+
+MAX_AUTO_RESTART = 3
+MIN_UPTIME_SECONDS = 600  # 10분
+
+
+async def _port_healthcheck(name: str, c: dict, state: ContainerState):
+    """running 컨테이너의 포트 응답 체크 → 무응답 시 자동 재시작"""
+    labels = c.get("labels", {})
+    port_label = labels.get("game-panel.port")
+    if not port_label:
+        return  # 포트 라벨 없으면 스킵
+
+    protocol = labels.get("game-panel.port-protocol", "tcp").lower()
+    if protocol not in ("tcp", "udp"):
+        protocol = "tcp"
+
+    try:
+        port = int(port_label)
+    except (ValueError, TypeError):
+        return
+
+    game_name = labels.get("game-panel.game", name)
+
+    # 업타임 10분 미만 → 초기화 중이므로 스킵
+    uptime = get_container_uptime_seconds(name)
+    if uptime is None or uptime < MIN_UPTIME_SECONDS:
+        return
+
+    # 포트 체크
+    port_ok = check_container_port(name, port, protocol=protocol)
+
+    if port_ok:
+        # 정상 → 재시작 카운터 리셋
+        if state.auto_restart_count > 0:
+            state.auto_restart_count = 0
+            print(f"[HEALTHCHECK] {name} 포트 {port}/{protocol} 정상 — 재시작 카운터 리셋")
+        return
+
+    # 포트 무응답
+    print(f"[HEALTHCHECK] {name} 포트 {port}/{protocol} 무응답 (업타임 {uptime:.0f}초)")
+
+    # 무한 재시작 방지
+    if state.auto_restart_count >= MAX_AUTO_RESTART:
+        print(f"[HEALTHCHECK] {name} 연속 {state.auto_restart_count}회 재시작 → 중단")
+        try:
+            await notify_auto_restart_limit(name, game_name)
+        except Exception:
+            pass
+        return
+
+    # 자동 재시작
+    try:
+        client = get_docker_client()
+        container = client.containers.get(name)
+        container.restart(timeout=30)
+        state.auto_restart_count += 1
+        print(f"[HEALTHCHECK] {name} 자동 재시작 ({state.auto_restart_count}회)")
+
+        try:
+            await notify_auto_restart(name, game_name, state.auto_restart_count)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[HEALTHCHECK] {name} 자동 재시작 실패: {e}")
 
 
 async def _send_down_alert(db: AsyncSession, container_name: str, game_name: str):

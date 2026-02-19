@@ -1,3 +1,4 @@
+import socket
 import docker
 from docker.errors import NotFound, APIError
 from typing import Optional
@@ -146,6 +147,87 @@ def get_container_logs(name: str, tail: int = 100) -> str:
     """컨테이너 로그 조회"""
     container = get_container(name)
     return container.logs(tail=tail, timestamps=True).decode("utf-8", errors="replace")
+
+
+def check_container_port(container_name: str, port: int, protocol: str = "tcp", timeout: float = 5.0) -> bool:
+    """컨테이너의 game-servers 네트워크 IP로 TCP/UDP 포트 체크"""
+    client = get_docker_client()
+    try:
+        container = client.containers.get(container_name)
+    except NotFound:
+        return False
+
+    networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+    ip = networks.get(settings.game_network, {}).get("IPAddress")
+    if not ip:
+        return False
+
+    if protocol == "udp":
+        return _check_udp(ip, port, timeout)
+    return _check_tcp(ip, port, timeout)
+
+
+def _check_tcp(ip: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+
+def _check_udp(ip: str, port: int, timeout: float) -> bool:
+    """
+    UDP 포트 체크 — 빈 패킷 전송 후 응답 확인.
+    ICMP port unreachable 수신 시 False, 응답 또는 타임아웃이면 True.
+    (UDP는 타임아웃 = 서버가 패킷을 수용했을 가능성 높음)
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
+    try:
+        sock.sendto(b"\xff\xff\xff\xff\x54Source Engine Query\x00", (ip, port))
+        try:
+            sock.recvfrom(1024)
+            return True  # 응답 받음 → 포트 열림
+        except socket.timeout:
+            return True  # 타임아웃 → ICMP 없음 → 포트 열림으로 간주
+        except ConnectionRefusedError:
+            return False  # ICMP port unreachable
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def get_container_uptime_seconds(container_name: str) -> float | None:
+    """컨테이너 업타임(초) 반환. 실행중이 아니면 None."""
+    client = get_docker_client()
+    try:
+        container = client.containers.get(container_name)
+    except NotFound:
+        return None
+
+    if container.status != "running":
+        return None
+
+    started_at_str = container.attrs.get("State", {}).get("StartedAt", "")
+    if not started_at_str:
+        return None
+
+    from datetime import datetime, timezone
+    # Docker StartedAt: "2024-01-01T00:00:00.123456789Z"
+    started_at_str = started_at_str.replace("Z", "+00:00")
+    # 나노초 자르기
+    if "." in started_at_str:
+        base, frac = started_at_str.split(".")
+        frac_part = frac.split("+")[0].split("-")[0][:6]
+        tz_part = started_at_str[len(base) + 1 + len(frac.split("+")[0].split("-")[0]):]
+        started_at_str = f"{base}.{frac_part}{tz_part}"
+
+    try:
+        started_at = datetime.fromisoformat(started_at_str)
+        return (datetime.now(timezone.utc) - started_at).total_seconds()
+    except (ValueError, TypeError):
+        return None
 
 
 def ensure_game_network():
