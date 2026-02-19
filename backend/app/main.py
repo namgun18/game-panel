@@ -13,6 +13,7 @@ from app.files.router import router as files_router
 from app.rbac.router import router as rbac_router
 from app.requests.router import router as requests_router
 from app.templates.router import router as templates_router
+from app.tickets.router import router as tickets_router
 
 settings = get_settings()
 _scheduler_task = None
@@ -77,6 +78,7 @@ app.include_router(files_router)
 app.include_router(rbac_router)
 app.include_router(requests_router)
 app.include_router(templates_router)
+app.include_router(tickets_router)
 
 
 @app.get("/api/health")

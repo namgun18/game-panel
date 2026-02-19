@@ -33,11 +33,26 @@ MIGRATIONS = [
         "ALTER TABLE game_requests ADD COLUMN config_file_path VARCHAR(500)",
     ]),
 
-    # ─── 다음 마이그레이션 예시 ───
-    # (2, "v0.6.0 — 새 기능 설명", [
-    #     "ALTER TABLE users ADD COLUMN some_field VARCHAR(100)",
-    #     "CREATE TABLE IF NOT EXISTS new_table (...)",
-    # ]),
+    (2, "v0.6.0 — tickets 테이블 + container_states.auto_restart_count", [
+        # Ticket 테이블
+        """CREATE TABLE IF NOT EXISTS tickets (
+            id VARCHAR PRIMARY KEY,
+            user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            container_name VARCHAR(100),
+            title VARCHAR(200) NOT NULL,
+            description TEXT NOT NULL,
+            status VARCHAR(20) DEFAULT 'submitted',
+            admin_reply TEXT,
+            replied_by VARCHAR REFERENCES users(id),
+            replied_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_tickets_user_id ON tickets(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_tickets_status ON tickets(status)",
+        # ContainerState 포트 헬스체크 자동재시작 카운터
+        "ALTER TABLE container_states ADD COLUMN auto_restart_count INTEGER DEFAULT 0",
+    ]),
 ]
 
 

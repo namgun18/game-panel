@@ -201,6 +201,72 @@ async def notify_user_registered(username: str, via: str):
 # 권한 부여 / 서버 배정 알림
 # ═══════════════════════════════════════════
 
+# ═══════════════════════════════════════════
+# 문의(티켓) 알림
+# ═══════════════════════════════════════════
+
+async def notify_ticket_submitted(
+    requester_name: str, title: str,
+    container_name: Optional[str] = None,
+):
+    """새 문의 접수 → 관리자 Discord 알림"""
+    if not settings.discord_notify_enabled:
+        return
+    fields = [
+        {"name": "문의자", "value": requester_name, "inline": True},
+        {"name": "제목", "value": title, "inline": False},
+    ]
+    if container_name:
+        fields.insert(1, {"name": "관련 서버", "value": container_name, "inline": True})
+    fields.append({
+        "name": "관리", "value": f"[문의 관리]({settings.app_url}/admin/tickets)", "inline": False,
+    })
+
+    await _send_embed(_request_channel(), {
+        "title": "🎫 새 문의 접수",
+        "color": 0x42A5F5,
+        "fields": fields,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+
+
+async def notify_auto_restart(
+    container_name: str, game_name: str, restart_count: int,
+):
+    """포트 헬스체크 실패 → 자동 재시작 알림"""
+    if not settings.discord_notify_enabled:
+        return
+    await _send_embed(_notify_channel(), {
+        "title": "🔄 게임 서버 자동 재시작",
+        "description": f"**{container_name}** ({game_name}) 서버가 포트 응답 없음으로 자동 재시작되었습니다.",
+        "color": 0xFFA726,
+        "fields": [
+            {"name": "서버", "value": container_name, "inline": True},
+            {"name": "게임", "value": game_name, "inline": True},
+            {"name": "연속 재시작", "value": f"{restart_count}회", "inline": True},
+        ],
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+
+
+async def notify_auto_restart_limit(container_name: str, game_name: str):
+    """자동 재시작 횟수 초과 → 재시작 중단 알림"""
+    if not settings.discord_notify_enabled:
+        return
+    await _send_embed(_notify_channel(), {
+        "title": "🚨 자동 재시작 중단",
+        "description": (
+            f"**{container_name}** ({game_name}) 서버가 연속 3회 이상 자동 재시작되어 "
+            f"추가 재시작을 중단합니다. 수동 확인이 필요합니다."
+        ),
+        "color": 0xE53935,
+        "fields": [
+            {"name": "조치", "value": f"[패널에서 확인]({settings.app_url}/servers)", "inline": False},
+        ],
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+
+
 async def notify_permission_granted(
     username: str, container_name: str, actions: list[str], is_new: bool = True,
 ):

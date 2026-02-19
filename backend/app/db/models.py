@@ -134,6 +134,7 @@ class ContainerState(Base):
     stopped_since = Column(DateTime, nullable=True)
     delete_warning_sent = Column(Boolean, default=False)
     down_alert_sent = Column(Boolean, default=False)
+    auto_restart_count = Column(Integer, default=0)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -165,3 +166,34 @@ class RefreshToken(Base):
     token_hash = Column(String(255), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════
+# 문의(티켓) 시스템
+# ═══════════════════════════════════════════
+
+TICKET_STATUSES = ["submitted", "acknowledged", "replied", "resolved"]
+
+TICKET_STATUS_LABELS = {
+    "submitted": "접수",
+    "acknowledged": "확인",
+    "replied": "답변완료",
+    "resolved": "완료",
+}
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    container_name = Column(String(100), nullable=True)  # 권한 보유 컨테이너 선택 (선택사항)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=False)
+    status = Column(String(20), default="submitted", index=True)
+    admin_reply = Column(Text, nullable=True)
+    replied_by = Column(String, ForeignKey("users.id"), nullable=True)
+    replied_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

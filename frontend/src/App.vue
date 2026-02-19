@@ -24,6 +24,8 @@
           rounded="lg" class="mb-1" active-color="primary" />
         <v-list-item prepend-icon="mdi-gamepad-variant" title="게임 신청" to="/request"
           rounded="lg" class="mb-1" active-color="primary" />
+        <v-list-item prepend-icon="mdi-ticket-outline" title="문의하기" to="/tickets"
+          rounded="lg" class="mb-1" active-color="primary" />
 
         <template v-if="auth.user?.is_admin">
           <div class="text-caption font-weight-bold px-3 pt-3 pb-1" style="color: #484F58;">관리자</div>
@@ -34,6 +36,8 @@
           <v-list-item prepend-icon="mdi-ticket" title="초대 코드" to="/admin/invites"
             rounded="lg" class="mb-1" active-color="primary" />
           <v-list-item prepend-icon="mdi-clipboard-list" title="신청 관리" to="/admin/requests"
+            rounded="lg" class="mb-1" active-color="primary" />
+          <v-list-item prepend-icon="mdi-ticket-confirmation" title="문의 관리" to="/admin/tickets"
             rounded="lg" class="mb-1" active-color="primary" />
           <v-list-item prepend-icon="mdi-file-cog" title="설정 양식" to="/admin/templates"
             rounded="lg" class="mb-1" active-color="primary" />

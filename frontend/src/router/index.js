@@ -28,6 +28,11 @@ const routes = [
     name: 'GameRequest',
     component: () => import('../views/GameRequest.vue'),
   },
+  {
+    path: '/tickets',
+    name: 'Tickets',
+    component: () => import('../views/Tickets.vue'),
+  },
   // 관리자
   {
     path: '/admin/users',
@@ -57,6 +62,12 @@ const routes = [
     path: '/admin/invites',
     name: 'AdminInvites',
     component: () => import('../views/AdminInvites.vue'),
+    meta: { admin: true },
+  },
+  {
+    path: '/admin/tickets',
+    name: 'AdminTickets',
+    component: () => import('../views/AdminTickets.vue'),
     meta: { admin: true },
   },
 ]

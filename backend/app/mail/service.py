@@ -317,3 +317,88 @@ async def send_stage_notification(
         </div>
     """)
     await send_email(to, f"[{icon} {title}] {game_name}", html)
+
+
+# ─── 문의(티켓) 접수 알림 (관리자용) ───
+
+async def send_ticket_submitted_notification(
+    requester_name: str, requester_email: str,
+    title: str, description: str,
+    container_name: str = None,
+):
+    server_row = ""
+    if container_name:
+        server_row = f"""
+            <tr><td style="padding: 8px; font-weight: bold; color: #90caf9;">관련 서버</td>
+                <td style="padding: 8px;">{container_name}</td></tr>
+        """
+    html = _wrap_html(f"""
+        <h2 style="color: #4fc3f7;">🎫 새 문의 접수</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px; font-weight: bold; color: #90caf9;">문의자</td>
+                <td style="padding: 8px;">{requester_name}</td></tr>
+            <tr><td style="padding: 8px; font-weight: bold; color: #90caf9;">이메일</td>
+                <td style="padding: 8px;">{requester_email or '미입력'}</td></tr>
+            {server_row}
+            <tr><td style="padding: 8px; font-weight: bold; color: #90caf9;">제목</td>
+                <td style="padding: 8px;">{title}</td></tr>
+            <tr><td style="padding: 8px; font-weight: bold; color: #90caf9;">내용</td>
+                <td style="padding: 8px;">{description[:500]}</td></tr>
+        </table>
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{settings.app_url}/admin/tickets"
+               style="background: #238636; color: #fff; padding: 12px 32px;
+                      border-radius: 8px; text-decoration: none; font-weight: 600;
+                      display: inline-block;">
+                문의 관리 바로가기
+            </a>
+        </div>
+    """)
+    await send_email(settings.admin_email, f"[🎫 새 문의] {title} - {requester_name}", html)
+
+
+# ─── 문의 상태 변경/답변 알림 (사용자용) ───
+
+async def send_ticket_status_notification(
+    to: str, username: str, title: str,
+    new_status: str, admin_reply: str = None,
+):
+    from app.db.models import TICKET_STATUS_LABELS
+    status_label = TICKET_STATUS_LABELS.get(new_status, new_status)
+
+    status_colors = {
+        "submitted": "#42A5F5",
+        "acknowledged": "#FFA726",
+        "replied": "#66BB6A",
+        "resolved": "#78909C",
+    }
+    color = status_colors.get(new_status, "#42A5F5")
+
+    reply_html = ""
+    if admin_reply:
+        reply_html = f"""
+        <div style="background: rgba(102,187,106,0.08); padding: 16px; border-radius: 4px; margin: 12px 0;
+                    border-left: 4px solid {color};">
+            <strong style="color: {color};">관리자 답변:</strong><br>
+            <div style="margin-top: 8px; white-space: pre-wrap;">{admin_reply}</div>
+        </div>
+        """
+
+    html = _wrap_html(f"""
+        <h2 style="color: {color};">🎫 문의 상태 변경</h2>
+        <p>{username}님, 문의하신 건의 상태가 변경되었습니다.</p>
+        <div style="background: rgba(255,255,255,0.05); padding: 16px; border-radius: 4px; margin: 12px 0;">
+            <strong>제목:</strong> {title}<br>
+            <strong>상태:</strong> <span style="color: {color}; font-weight: bold;">{status_label}</span>
+        </div>
+        {reply_html}
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{settings.app_url}/tickets"
+               style="background: #238636; color: #fff; padding: 12px 32px;
+                      border-radius: 8px; text-decoration: none; font-weight: 600;
+                      display: inline-block;">
+                문의 내역 확인
+            </a>
+        </div>
+    """)
+    await send_email(to, f"[🎫 {status_label}] {title}", html)
