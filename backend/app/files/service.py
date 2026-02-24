@@ -216,10 +216,8 @@ def download_file(container_name: str, path: str) -> tuple[bytes, str]:
     return data, posixpath.basename(path)
 
 
-def download_dir_zip(container_name: str, path: str) -> tuple[bytes, str]:
-    """디렉토리를 ZIP으로 변환하여 다운로드"""
-    import zipfile
-
+def download_dir_stream(container_name: str, path: str):
+    """디렉토리를 tar 스트림으로 직접 반환 (메모리 버퍼링 없음)"""
     path = _validate_path(path)
     container = get_container(container_name)
 
@@ -228,25 +226,8 @@ def download_dir_zip(container_name: str, path: str) -> tuple[bytes, str]:
     except NotFound:
         raise FileNotFoundError(f"경로를 찾을 수 없습니다: {path}")
 
-    tar_stream = io.BytesIO()
-    for chunk in bits:
-        tar_stream.write(chunk)
-    tar_stream.seek(0)
-
-    zip_buf = io.BytesIO()
-    with tarfile.open(fileobj=tar_stream, mode="r") as tar:
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for member in tar.getmembers():
-                if member.isfile():
-                    f = tar.extractfile(member)
-                    if f:
-                        # tar 루트 디렉토리 제거 (e.g. "dirname/file" → "file")
-                        parts = member.name.split("/", 1)
-                        arcname = parts[1] if len(parts) > 1 else member.name
-                        zf.writestr(arcname, f.read())
-
     dirname = posixpath.basename(path.rstrip("/"))
-    return zip_buf.getvalue(), f"{dirname}.zip"
+    return bits, f"{dirname}.tar"
 
 
 # ─── 삭제 ───

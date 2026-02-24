@@ -15,7 +15,7 @@ from app.rbac.deps import RequirePermission
 from app.db.models import User
 from app.files.service import (
     list_files, read_file, write_file, upload_file,
-    download_file, download_dir_zip, delete_path, create_directory, rename_path,
+    download_file, download_dir_stream, delete_path, create_directory, rename_path,
 )
 
 router = APIRouter(prefix="/api/containers/{container_name}/files", tags=["파일 관리"])
@@ -138,12 +138,12 @@ async def api_download_zip(
     path: str = Query(...),
     user: User = Depends(RequirePermission("files")),
 ):
-    """디렉토리를 ZIP으로 다운로드"""
+    """디렉토리를 tar 스트림으로 다운로드 (즉시 시작, 메모리 버퍼링 없음)"""
     try:
-        data, filename = download_dir_zip(container_name, path)
+        stream, filename = download_dir_stream(container_name, path)
         return StreamingResponse(
-            io.BytesIO(data),
-            media_type="application/zip",
+            stream,
+            media_type="application/x-tar",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except FileNotFoundError as e:

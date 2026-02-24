@@ -44,7 +44,7 @@
             <td class="text-grey text-caption">{{ f.modified }}</td>
             <td class="text-right">
               <v-btn v-if="canEdit(f)" icon="mdi-pencil" size="x-small" variant="text" @click.stop="editFile(f)" />
-              <v-btn :icon="f.is_dir ? 'mdi-folder-zip' : 'mdi-download'" size="x-small" variant="text" @click.stop="downloadIt(f)" :title="f.is_dir ? 'ZIP 다운로드' : '다운로드'" />
+              <v-btn :icon="f.is_dir ? 'mdi-folder-zip' : 'mdi-download'" size="x-small" variant="text" @click.stop="downloadIt(f)" :title="f.is_dir ? '폴더 다운로드' : '다운로드'" />
               <v-menu>
                 <template v-slot:activator="{ props }">
                   <v-btn icon="mdi-dots-vertical" size="x-small" variant="text" v-bind="props" @click.stop />
@@ -216,7 +216,7 @@ async function downloadIt(f) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = f.is_dir ? `${f.name}.zip` : f.name
+    a.download = f.is_dir ? `${f.name}.tar` : f.name
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
