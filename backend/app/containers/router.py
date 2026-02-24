@@ -9,7 +9,6 @@ from app.auth.deps import require_discord_role
 from app.rbac.deps import RequirePermission
 from app.containers.schemas import ContainerInfo, ContainerAction, ContainerLogs
 from app.containers.service import list_game_containers, container_action, get_container_logs, get_container, get_container_stats
-from app.discord.notify import notify_server_up
 
 router = APIRouter(prefix="/api/containers", tags=["컨테이너 관리"])
 
@@ -77,13 +76,7 @@ async def start_container(
 ):
     try:
         msg = container_action(container_name, "start")
-        # Discord 알림
-        try:
-            c = get_container(container_name)
-            game = c.labels.get("game-panel.game", container_name)
-            await notify_server_up(container_name, game)
-        except Exception:
-            pass
+        # Discord 알림은 healthcheck 스케줄러에서 상태 변경 감지 시 발송 (중복 방지)
         return {"message": msg}
     except NotFound:
         raise HTTPException(status_code=404, detail="컨테이너를 찾을 수 없습니다")
