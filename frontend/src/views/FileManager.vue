@@ -210,6 +210,7 @@ async function downloadIt(f) {
     const res = await api.get(`/api/containers/${cn.value}/files/${endpoint}`, {
       params: { path: f.path },
       responseType: 'blob',
+      timeout: 300000,
     })
     const blob = new Blob([res.data])
     const url = URL.createObjectURL(blob)
@@ -221,7 +222,12 @@ async function downloadIt(f) {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (e) {
-    notify(e.response?.data?.detail || '다운로드 실패', 'error')
+    let msg = '다운로드 실패'
+    if (e.code === 'ECONNABORTED') msg = '다운로드 시간 초과 (파일이 너무 큼)'
+    else if (e.response?.data instanceof Blob) {
+      try { const t = JSON.parse(await e.response.data.text()); msg = t.detail || msg } catch {}
+    } else if (e.response?.data?.detail) msg = e.response.data.detail
+    notify(msg, 'error')
   }
 }
 
