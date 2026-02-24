@@ -44,7 +44,7 @@
             <td class="text-grey text-caption">{{ f.modified }}</td>
             <td class="text-right">
               <v-btn v-if="canEdit(f)" icon="mdi-pencil" size="x-small" variant="text" @click.stop="editFile(f)" />
-              <v-btn v-if="!f.is_dir" icon="mdi-download" size="x-small" variant="text" @click.stop="downloadIt(f)" />
+              <v-btn :icon="f.is_dir ? 'mdi-folder-zip' : 'mdi-download'" size="x-small" variant="text" @click.stop="downloadIt(f)" :title="f.is_dir ? 'ZIP 다운로드' : '다운로드'" />
               <v-menu>
                 <template v-slot:activator="{ props }">
                   <v-btn icon="mdi-dots-vertical" size="x-small" variant="text" v-bind="props" @click.stop />
@@ -204,7 +204,26 @@ async function saveFile() {
   catch(e) { notify(e.response?.data?.detail || '저장 실패', 'error') }
   finally { saving.value = false }
 }
-function downloadIt(f) { window.open(`/api/containers/${cn.value}/files/download?path=${encodeURIComponent(f.path)}`, '_blank') }
+async function downloadIt(f) {
+  const endpoint = f.is_dir ? 'download-zip' : 'download'
+  try {
+    const res = await api.get(`/api/containers/${cn.value}/files/${endpoint}`, {
+      params: { path: f.path },
+      responseType: 'blob',
+    })
+    const blob = new Blob([res.data])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = f.is_dir ? `${f.name}.zip` : f.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    notify(e.response?.data?.detail || '다운로드 실패', 'error')
+  }
+}
 
 async function handleFileUpload(e) {
   for (const file of e.target.files) { await doUp(file) }

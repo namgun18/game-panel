@@ -15,7 +15,7 @@ from app.rbac.deps import RequirePermission
 from app.db.models import User
 from app.files.service import (
     list_files, read_file, write_file, upload_file,
-    download_file, delete_path, create_directory, rename_path,
+    download_file, download_dir_zip, delete_path, create_directory, rename_path,
 )
 
 router = APIRouter(prefix="/api/containers/{container_name}/files", tags=["파일 관리"])
@@ -122,6 +122,28 @@ async def api_download_file(
         return StreamingResponse(
             io.BytesIO(data),
             media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── 폴더 ZIP 다운로드 ───
+
+@router.get("/download-zip")
+async def api_download_zip(
+    container_name: str,
+    path: str = Query(...),
+    user: User = Depends(RequirePermission("files")),
+):
+    """디렉토리를 ZIP으로 다운로드"""
+    try:
+        data, filename = download_dir_zip(container_name, path)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="application/zip",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except FileNotFoundError as e:
